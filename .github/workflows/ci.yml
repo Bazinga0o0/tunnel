@@ -76,7 +76,12 @@ jobs:
       # that break `go install`. Bump deliberately when you regenerate locally.
       - name: sqlc drift check
         run: |
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          # The module proxy now and then drops a download; try three times.
+          for i in 1 2 3; do
+            go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 && break
+            [ "$i" = 3 ] && exit 1
+            echo "go install failed, retrying in 10 s"; sleep 10
+          done
           sqlc generate
           git diff --exit-code internal/server/db/sqlcgen/ || (echo "sqlc generated code drifted; run 'sqlc generate' and commit" && exit 1)
 
