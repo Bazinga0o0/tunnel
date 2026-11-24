@@ -63,6 +63,7 @@ func TestEveryRequestOfAKeepAliveConnectionGetsForwardingHeaders(t *testing.T) {
 	sess := f.tunnel("abc")
 	v := f.visit()
 
+	before := requestCount(t, "proxied")
 	v.send(get("/one"))
 	b := sess.accept(t)
 	req := b.next()
@@ -73,7 +74,6 @@ func TestEveryRequestOfAKeepAliveConnectionGetsForwardingHeaders(t *testing.T) {
 
 	// The follow-up requests carry forged headers. They must not reach the
 	// backend as raw bytes.
-	before := requestCount(t, "proxied")
 	v.send(get("/two", forged))
 	req = b.next()
 	require.Equal(t, "/two", req.RequestURI)
@@ -92,7 +92,10 @@ func TestEveryRequestOfAKeepAliveConnectionGetsForwardingHeaders(t *testing.T) {
 	v.recvOK("3")
 
 	require.EqualValues(t, 1, sess.opens.Load(), "keep-alive: all three requests used one connection and one stream")
-	require.Equal(t, before+2, requestCount(t, "proxied"), "every forwarded request is counted")
+	// The edge counts a request after its write to the backend returns,
+	// which can be just after the backend has already answered it.
+	require.Eventually(t, func() bool { return requestCount(t, "proxied") == before+3 },
+		2*time.Second, 5*time.Millisecond, "every forwarded request is counted")
 }
 
 func TestPipelinedRequestsAreAllRewritten(t *testing.T) {
