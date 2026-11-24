@@ -1,0 +1,58 @@
+# Binaries
+/tunneld
+/tunnel
+/bin/
+*.exe
+
+# Dev-artifacts
+/dev-certs/
+/configs/tunneld.yaml
+/configs/tunnel.yaml
+
+# Secrets and data that must never be committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+account.json
+certificate.json
+
+# Dumps, databases, logs, backups (migrations are *.sql, so only root-level dumps)
+/*.sql
+*.sql.gz
+*.dump
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+*.orig
+
+# Working notes of the development agents (plans, reports, ledgers)
+.superpowers/
+
+# Test-artifacts
+*.test
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE/tooling settings
+.claude/
+
+# Dev tool binaries (platform-specific, see tools/README.md)
+tools/tailwindcss
+tools/tailwindcss.exe

@@ -1,0 +1,166 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/Bazinga0o0/tunnel/internal/server/db/sqlcgen"
+)
+
+// AdminUserDetailData is the view model for /admin/users/{id}.
+type AdminUserDetailData struct {
+	User         sqlcgen.User
+	SessionCount int64
+	TokenCount   int64
+	SubdomainResv int64
+	TCPPortResv  int64
+	UDPPortResv  int64
+	ErrMsg       string
+	CSRFToken    string
+	CSPNonce     string
+	// ApprovalsActive is set in approval and closed mode: the page shows
+	// whether the account is approved and, when it waits and is not
+	// disabled, a button to approve it.
+	ApprovalsActive bool
+}
+
+templ AdminUserDetailPage(data AdminUserDetailData) {
+	@AdminLayout("User detail", data.CSPNonce, "users") {
+		<main class="mx-auto max-w-4xl px-6 py-12" id="user-detail">
+			<div class="mb-6 flex items-center gap-4">
+				<h1 class="text-2xl font-semibold">{ data.User.Email }</h1>
+				<a href="/admin/users" class="text-sm text-zinc-500 underline hover:text-zinc-900">← Users</a>
+			</div>
+			if data.ErrMsg != "" {
+				<div class="mb-6 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+					{ data.ErrMsg }
+				</div>
+			}
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+				<section class="rounded border border-zinc-200 bg-white p-5">
+					<h2 class="mb-3 text-base font-semibold">Profile</h2>
+					@adminDetailRow("ID", fmt.Sprint(data.User.ID))
+					@adminDetailRow("Email", data.User.Email)
+					@adminDetailRow("Joined", data.User.CreatedAt.Time.Format("2006-01-02 15:04 UTC"))
+					if data.User.EmailVerifiedAt.Valid {
+						@adminDetailRow("Verified", data.User.EmailVerifiedAt.Time.Format("2006-01-02"))
+					} else {
+						@adminDetailRow("Verified", "no")
+					}
+					if data.User.DisabledAt.Valid {
+						@adminDetailRow("Disabled", data.User.DisabledAt.Time.Format("2006-01-02 15:04 UTC"))
+					} else {
+						@adminDetailRow("Disabled", "no")
+					}
+					if data.User.IsAdmin {
+						@adminDetailRow("Admin", "yes")
+					} else {
+						@adminDetailRow("Admin", "no")
+					}
+					if data.ApprovalsActive {
+						if data.User.ApprovedAt.Valid {
+							@adminDetailRow("Approved", data.User.ApprovedAt.Time.Format("2006-01-02"))
+						} else if data.User.IsAdmin {
+							@adminDetailRow("Approved", "no (an admin needs none)")
+						} else {
+							@adminDetailRow("Approved", "no, waits for approval")
+						}
+					}
+				</section>
+				<section class="rounded border border-zinc-200 bg-white p-5">
+					<h2 class="mb-3 text-base font-semibold">Activity</h2>
+					@adminDetailRow("Active sessions", fmt.Sprint(data.SessionCount))
+					@adminDetailRow("Active tokens", fmt.Sprint(data.TokenCount))
+					@adminDetailRow("Subdomain reservations", fmt.Sprint(data.SubdomainResv))
+					@adminDetailRow("TCP port reservations", fmt.Sprint(data.TCPPortResv))
+					@adminDetailRow("UDP port reservations", fmt.Sprint(data.UDPPortResv))
+				</section>
+			</div>
+			<section class="rounded border border-zinc-200 bg-white p-5">
+				<h2 class="mb-4 text-base font-semibold">Actions</h2>
+				<div class="flex flex-wrap gap-3">
+					if data.ApprovalsActive && !data.User.ApprovedAt.Valid && !data.User.IsAdmin && !data.User.DisabledAt.Valid {
+						<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/approve", data.User.ID)) }>
+							<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+							<button type="submit" class="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white hover:bg-zinc-700">Freischalten</button>
+						</form>
+					}
+					if !data.User.EmailVerifiedAt.Valid {
+						<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/verify", data.User.ID)) }>
+							<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+							<button type="submit" class="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white hover:bg-zinc-700">Mark verified</button>
+						</form>
+					}
+					if !data.User.DisabledAt.Valid {
+						<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/disable", data.User.ID)) }>
+							<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+							<button type="submit" class="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Disable</button>
+						</form>
+					} else {
+						<div class="flex flex-wrap items-center gap-3">
+							<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/enable", data.User.ID)) }>
+								<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+								<button type="submit" class="rounded border border-green-300 px-3 py-1.5 text-sm text-green-700 hover:bg-green-50">Enable</button>
+							</form>
+							<p class="max-w-md text-sm text-zinc-500">
+								After enabling, the API tokens of this account that were not revoked work again, including any created while the account was compromised. To cut them off, use "Revoke all API tokens and close tunnels" on this page, or list them with tunneld admin list-tokens and revoke them one by one.
+							</p>
+						</div>
+					}
+					<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/revoke-tokens", data.User.ID)) }>
+						<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+						<button type="submit" class="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Revoke all API tokens and close tunnels</button>
+					</form>
+				</div>
+				<p class="mt-4 mb-3 text-sm text-zinc-500">The actions below need your current password.</p>
+				<div class="flex flex-wrap gap-3">
+					if !data.User.IsAdmin {
+						<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/promote", data.User.ID)) } class="flex gap-2 items-center">
+							<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+							@adminCurrentPasswordInput()
+							<button type="submit" class="rounded border border-blue-300 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-50">Promote to admin</button>
+						</form>
+					} else {
+						<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/demote", data.User.ID)) } class="flex gap-2 items-center">
+							<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+							@adminCurrentPasswordInput()
+							<button type="submit" class="rounded border border-orange-300 px-3 py-1.5 text-sm text-orange-700 hover:bg-orange-50">Demote from admin</button>
+						</form>
+					}
+					<form method="post" action={ templ.SafeURL(fmt.Sprintf("/admin/users/%d/reset-password", data.User.ID)) } class="flex gap-2 items-center">
+						<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+						<input
+							type="password"
+							name="new_password"
+							placeholder="New password (min 12)"
+							minlength="12"
+							autocomplete="new-password"
+							required
+							class="rounded border border-zinc-300 px-3 py-1.5 text-sm"
+						/>
+						@adminCurrentPasswordInput()
+						<button type="submit" class="rounded border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-50">Reset password</button>
+					</form>
+				</div>
+			</section>
+		</main>
+	}
+}
+
+// adminCurrentPasswordInput is the field in which the acting admin confirms
+// an action with their own password.
+templ adminCurrentPasswordInput() {
+	<input
+		type="password"
+		name="current_password"
+		placeholder="Your current password"
+		autocomplete="current-password"
+		required
+		class="rounded border border-zinc-300 px-3 py-1.5 text-sm"
+	/>
+}
+
+templ adminDetailRow(label, value string) {
+	<div class="flex justify-between py-1 border-b border-zinc-100 last:border-0">
+		<span class="text-sm text-zinc-500">{ label }</span>
+		<span class="text-sm font-medium">{ value }</span>
+	</div>
+}

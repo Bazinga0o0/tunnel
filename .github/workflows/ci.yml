@@ -1,0 +1,122 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+# The workflow token only needs to read the repository.
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a full commit SHA; the comment names the
+# release that SHA belongs to. Update both together.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Keep this tag identical to docker-compose.yml.
+        image: postgres:16.16-alpine
+        env:
+          POSTGRES_USER: tunneld
+          POSTGRES_PASSWORD: tunneld_dev_password
+          POSTGRES_DB: tunneld
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tunneld -d tunneld"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the toolchain named by the `toolchain` line of go.mod.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # setup-go must have installed exactly the toolchain that go.mod names.
+      # Had it only looked at the `go` line, this would be the first release
+      # of the line, without any of the later security fixes.
+      - name: check that Go is the toolchain named in go.mod
+        run: |
+          want="$(awk '$1 == "toolchain" { print $2 }' go.mod)"
+          have="$(go env GOVERSION)"
+          if [ -z "$want" ]; then
+            echo "::error::go.mod has no toolchain line"
+            exit 1
+          fi
+          if [ "$have" != "$want" ]; then
+            echo "::error::Go in use is '${have}', but go.mod names toolchain '${want}'"
+            exit 1
+          fi
+          echo "Go in use: ${have}"
+
+      - name: go vet
+        run: go vet ./...
+
+      # The database tests of all packages take turns on one advisory lock.
+      # Run in parallel, a test binary's wait for the others would count
+      # against its own time limit, so the packages run one after another
+      # (-p 1), each binary with 600 s. On a two-core machine the slowest
+      # package takes about two minutes; the rest is room for a slow runner,
+      # not for slow tests.
+      - name: go test (with DB)
+        env:
+          TUNNELD_TEST_DATABASE_URL: postgres://tunneld:tunneld_dev_password@127.0.0.1:5432/tunneld?sslmode=disable
+        run: go test -count=1 -p 1 -timeout 600s ./...
+
+      # sqlc is pinned because newer versions sometimes add replace directives
+      # that break `go install`. Bump deliberately when you regenerate locally.
+      - name: sqlc drift check
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          sqlc generate
+          git diff --exit-code internal/server/db/sqlcgen/ || (echo "sqlc generated code drifted; run 'sqlc generate' and commit" && exit 1)
+
+      - name: templ drift check
+        run: |
+          go install github.com/a-h/templ/cmd/templ@v0.3.1001
+          templ generate
+          git diff --exit-code internal/server/frontend/templates/*_templ.go || (echo "templ generated code drifted; run 'templ generate' and commit" && exit 1)
+
+  # Known vulnerabilities in the Go standard library (as selected by go.mod)
+  # and in the dependencies that the code actually reaches. A separate job, so
+  # that a new advisory does not hide the result of the tests above.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The result depends on the Go release, so the same guard as above.
+      - name: check that Go is the toolchain named in go.mod
+        run: |
+          want="$(awk '$1 == "toolchain" { print $2 }' go.mod)"
+          have="$(go env GOVERSION)"
+          if [ -z "$want" ]; then
+            echo "::error::go.mod has no toolchain line"
+            exit 1
+          fi
+          if [ "$have" != "$want" ]; then
+            echo "::error::Go in use is '${have}', but go.mod names toolchain '${want}'"
+            exit 1
+          fi
+          echo "Go in use: ${have}"
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...

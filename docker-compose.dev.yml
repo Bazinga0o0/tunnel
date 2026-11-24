@@ -1,0 +1,10 @@
+services:
+  mailhog:
+    # v1.0.1 is the last upstream release (2020); pinned so that the tag can
+    # not move. Development only - never deploy this file to a server.
+    image: mailhog/mailhog:v1.0.1
+    container_name: tunneld-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"  # SMTP
+      - "127.0.0.1:8025:8025"  # Web UI at http://127.0.0.1:8025

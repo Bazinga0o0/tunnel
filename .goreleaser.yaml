@@ -1,0 +1,108 @@
+version: 2
+
+project_name: tunnel
+
+before:
+  hooks:
+    # `go mod download` fetches every module that go.mod requires and compares
+    # each one with its hash in go.sum; a mismatch fails the release.
+    # `go mod verify` then re-hashes what is in the module cache. On its own
+    # it would check next to nothing here: it skips modules that are not
+    # downloaded, and the release job starts with an empty cache.
+    # (`go mod tidy` must not run here: it may rewrite go.mod and go.sum, so
+    # the release would be built from files nobody reviewed.)
+    - go mod download
+    - go mod verify
+
+builds:
+  - id: tunneld
+    main: ./cmd/tunneld
+    binary: tunneld
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  - id: tunnel
+    main: ./cmd/tunnel
+    binary: tunnel
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  # scripts/install-server.sh resolves the binary, docker-compose.yml, the
+  # systemd unit and the config template relative to the root of this archive.
+  # Keep the paths below and the list in that script in step.
+  - id: tunneld-archive
+    ids: [tunneld]
+    name_template: "tunneld-{{.Version}}-{{.Os}}-{{.Arch}}"
+    formats: [tar.gz]
+    files:
+      - README.md
+      - docs/*.md
+      - LICENSE*
+      - systemd/tunneld.service
+      - scripts/install-server.sh
+      - scripts/backup-postgres.sh
+      - scripts/backup-postgres.cron
+      - scripts/deploy.sh
+      - configs/tunneld.example.yaml
+      - docker-compose.yml
+
+  - id: tunnel-archive
+    ids: [tunnel]
+    name_template: "tunnel-{{.Version}}-{{.Os}}-{{.Arch}}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - docs/*.md
+      - LICENSE*
+      - configs/tunnel.example.yaml
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  # Owner/name are auto-detected from the git `origin` remote, so we don't
+  # pin them here — that way the workflow works for any fork.
+  draft: false
+  prerelease: auto

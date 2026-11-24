@@ -1,0 +1,106 @@
+package templates
+
+import (
+	"fmt"
+	"time"
+)
+
+// DashboardData is the view-model for DashboardPage.
+type DashboardData struct {
+	Email            string
+	CreatedAt        time.Time
+	TokenCount       int
+	ReservationCount int
+	LiveTunnelCount  int
+
+	// Verified is true when the user's email_verified_at is set.
+	Verified bool
+	// JustVerified is true when the request arrived with ?verified=1 (the
+	// redirect target of a successful /verify). Renders a green success banner.
+	JustVerified bool
+	// ResendStatus is "ok", "throttled", or "" (from ?resend=…) and drives
+	// the inline feedback beneath the resend button.
+	ResendStatus string
+	// NeedsVerification is true when the request arrived with
+	// ?needs_verification=1 (redirect target of the verified-email gate).
+	NeedsVerification bool
+	// AwaitingApproval is true while the account waits for an admin's
+	// approval (auth.signup approval or closed). Renders a banner that
+	// stays until the account is approved.
+	AwaitingApproval bool
+
+	CSRFToken string
+	CSPNonce  string
+
+	// IsAdmin controls whether the "Admin" nav link is rendered.
+	IsAdmin bool
+}
+
+templ DashboardPage(data DashboardData) {
+	@Layout("Dashboard", data.CSPNonce) {
+		<main class="mx-auto max-w-4xl px-6 py-12">
+			if data.JustVerified {
+				<div class="mb-6 rounded border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+					Email verified — thanks.
+				</div>
+			}
+			if !data.Verified {
+				<div class="mb-6 rounded border border-amber-300 bg-amber-50 p-4">
+					<div class="mb-2 text-sm font-medium text-amber-900">Please verify your email</div>
+					<div class="mb-3 text-xs text-amber-800">Check your inbox for a verification link. You can't create tokens or reserve subdomains until you verify.</div>
+					if data.NeedsVerification {
+						<div class="mb-3 text-xs text-red-700">That action is unavailable until your email is verified.</div>
+					}
+					<form method="post" action="/verify/resend">
+						<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+						<button type="submit" class="rounded bg-amber-900 px-3 py-1.5 text-xs text-white hover:bg-amber-950">Resend email</button>
+					</form>
+					if data.ResendStatus == "ok" {
+						<div class="mt-2 text-xs text-green-700">Email sent.</div>
+					}
+					if data.ResendStatus == "throttled" {
+						<div class="mt-2 text-xs text-red-700">Please wait a minute before requesting another email.</div>
+					}
+				</div>
+			}
+			if data.AwaitingApproval {
+				<div class="mb-6 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+					Dein Konto wartet auf Freischaltung durch einen Admin. Bis dahin kannst du keine Tokens oder Reservierungen anlegen.
+				</div>
+			}
+			<header class="mb-8 flex items-start justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold">Dashboard</h1>
+					<p class="text-sm text-zinc-600">
+						Signed in as { data.Email } · member since { data.CreatedAt.Format("Jan 2, 2006") }
+					</p>
+				</div>
+				<div class="flex items-center gap-3">
+					if data.IsAdmin {
+						<a href="/admin" class="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100">Admin</a>
+					}
+					<form method="post" action="/logout">
+						<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+						<button type="submit" class="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100">Log out</button>
+					</form>
+				</div>
+			</header>
+
+			<section class="grid gap-4 sm:grid-cols-3">
+				@dashCard("Active tokens", data.TokenCount, "/tokens", "Create a token to start tunneling.")
+				@dashCard("Reservations", data.ReservationCount, "/reservations", "Reserve a subdomain you want to keep.")
+				@dashCard("Live tunnels", data.LiveTunnelCount, "/tunnels", "Spin up a local service.")
+			</section>
+		</main>
+	}
+}
+
+templ dashCard(title string, count int, href string, empty string) {
+	<a href={ templ.SafeURL(href) } class="block rounded border border-zinc-200 bg-white p-5 hover:border-zinc-400">
+		<div class="text-sm font-medium text-zinc-600">{ title }</div>
+		<div class="mt-2 text-3xl font-semibold">{ fmt.Sprint(count) }</div>
+		if count == 0 {
+			<div class="mt-2 text-xs text-zinc-500">{ empty }</div>
+		}
+	</a>
+}

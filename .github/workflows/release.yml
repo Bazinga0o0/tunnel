@@ -1,0 +1,65 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Read-only by default; the release job widens this for itself.
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a full commit SHA; the comment names the
+# release that SHA belongs to. Update both together.
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload the archives
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # The token is not left behind in the git config for later steps.
+          persist-credentials: false
+
+      # Installs the toolchain named by the `toolchain` line of go.mod.
+      # No cache: a release must not be built from a cache that the CI
+      # workflow (which also runs for pull requests) is able to write.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # A release must be built with exactly the toolchain that go.mod names.
+      # Had setup-go only looked at the `go` line, this would be the first
+      # release of the line, without any of the later security fixes.
+      - name: check that Go is the toolchain named in go.mod
+        run: |
+          want="$(awk '$1 == "toolchain" { print $2 }' go.mod)"
+          have="$(go env GOVERSION)"
+          if [ -z "$want" ]; then
+            echo "::error::go.mod has no toolchain line"
+            exit 1
+          fi
+          if [ "$have" != "$want" ]; then
+            echo "::error::Go in use is '${have}', but go.mod names toolchain '${want}'"
+            exit 1
+          fi
+          echo "Go in use: ${have}"
+
+      # Frontend assets (templ *_templ.go, app.css) are committed. CI's drift
+      # check guarantees they're up-to-date; regenerating here would make the
+      # worktree dirty and GoReleaser refuses to ship that.
+
+      - name: goreleaser
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          # Exact version, no range: a new GoReleaser release does not change
+          # how a tag is built until this line is changed.
+          version: "v2.20.2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

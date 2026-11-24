@@ -1,0 +1,28 @@
+services:
+  postgres:
+    # Keep this tag identical to the service image in .github/workflows/ci.yml.
+    image: postgres:16.16-alpine
+    container_name: tunneld-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tunneld
+      # Required, no default. The password only takes effect when the data
+      # volume is initialised for the first time.
+      #   Server: scripts/install-server.sh generates one and stores it in
+      #           /opt/tunneld/.env (root, 0600), which compose reads.
+      #   Local:  `make db-up` / `make dev-up` pass the development password.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - on a server it comes from /opt/tunneld/.env (written by scripts/install-server.sh), for local development use make db-up}"
+      POSTGRES_DB: tunneld
+    ports:
+      - "127.0.0.1:5432:5432"  # loopback-only; never exposed externally
+    volumes:
+      - tunneld-pg-data:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tunneld -d tunneld"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tunneld-pg-data:

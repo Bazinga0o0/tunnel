@@ -1,0 +1,131 @@
+package templates
+
+import (
+	"fmt"
+	"time"
+)
+
+// TokenRow is a single row in the tokens table view.
+type TokenRow struct {
+	ID         int64
+	Name       string
+	Prefix     string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	// Expired marks a token whose expiry has passed: it is listed so that
+	// its owner can revoke it, but it no longer works.
+	Expired bool
+}
+
+// TokensData is the view-model for TokensPage.
+type TokensData struct {
+	Tokens    []TokenRow
+	NewRaw    string // non-empty right after creation, shown once
+	ErrMsg    string
+	CSRFToken string
+	CSPNonce  string
+}
+
+templ TokensPage(data TokensData) {
+	@Layout("API Tokens", data.CSPNonce) {
+		<main class="mx-auto max-w-4xl px-6 py-12">
+			<header class="mb-8 flex items-center justify-between">
+				<h1 class="text-2xl font-semibold">API Tokens</h1>
+				<a href="/dashboard" class="text-sm underline">← Dashboard</a>
+			</header>
+			if data.NewRaw != "" {
+				@tokenBannerBox(data.NewRaw)
+			}
+			if data.ErrMsg != "" {
+				<div id="token-error" class="mb-4 rounded bg-red-100 px-4 py-3 text-sm text-red-800">{ data.ErrMsg }</div>
+			} else {
+				<div id="token-error"></div>
+			}
+			<form hx-post="/tokens" hx-target="#tokens-body" hx-swap="afterbegin" class="mb-6 flex items-end gap-3">
+				<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+				<label class="flex-1">
+					<span class="text-sm font-medium">Name</span>
+					<input type="text" name="name" required placeholder="e.g. Laptop" class="mt-1 block w-full rounded border-zinc-300 px-3 py-2"/>
+				</label>
+				<button type="submit" class="rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800">Create token</button>
+			</form>
+			<table class="w-full text-left text-sm">
+				<thead class="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+					<tr>
+						<th class="py-2">Name</th>
+						<th class="py-2">Prefix</th>
+						<th class="py-2">Created</th>
+						<th class="py-2">Last used</th>
+						<th class="py-2"></th>
+					</tr>
+				</thead>
+				<tbody id="tokens-body">
+					for _, t := range data.Tokens {
+						@TokensRow(t, data.CSRFToken)
+					}
+					if len(data.Tokens) == 0 {
+						<tr id="tokens-empty"><td colspan="5" class="py-6 text-center text-zinc-500">No tokens yet.</td></tr>
+					}
+				</tbody>
+			</table>
+		</main>
+	}
+}
+
+templ TokensRow(t TokenRow, csrfToken string) {
+	<tr class="border-b border-zinc-100">
+		<td class="py-2 font-medium">
+			{ t.Name }
+			if t.Expired {
+				{ " " }
+				<span class="rounded bg-red-100 px-2 text-xs text-red-800">expired</span>
+			}
+		</td>
+		<td class="py-2 font-mono text-xs text-zinc-600">twbl_{ t.Prefix }…</td>
+		<td class="py-2 text-zinc-600">{ t.CreatedAt.Format("Jan 2, 2006") }</td>
+		<td class="py-2 text-zinc-600">
+			if t.LastUsedAt != nil {
+				{ t.LastUsedAt.Format("Jan 2, 15:04") }
+			} else {
+				<span class="text-zinc-400">never</span>
+			}
+		</td>
+		<td class="py-2 text-right">
+			<button
+				hx-post={ fmt.Sprintf("/tokens/%d/revoke", t.ID) }
+				hx-headers={ `{"X-CSRF-Token":"` + csrfToken + `"}` }
+				hx-target="closest tr"
+				hx-swap="outerHTML"
+				hx-confirm="Revoke this token?"
+				class="text-red-700 hover:underline">
+				Revoke
+			</button>
+		</td>
+	</tr>
+}
+
+// TokenBanner is the out-of-band fragment that shows a new token once, at
+// the top of the page. htmx inserts the children of the outer element.
+templ TokenBanner(raw string) {
+	<div hx-swap-oob="afterbegin:main">
+		@tokenBannerBox(raw)
+	</div>
+}
+
+templ tokenBannerBox(raw string) {
+	<div id="new-token-banner" class="mb-6 rounded border border-amber-300 bg-amber-50 p-4">
+		<div class="mb-1 text-sm font-semibold text-amber-900">Your new token</div>
+		<div class="mb-2 text-xs text-amber-800">Copy it now — it will not be shown again.</div>
+		<code class="block break-all rounded bg-white px-3 py-2 font-mono text-sm">{ raw }</code>
+	</div>
+}
+
+// TokensError replaces the error field of the token form out of band. An
+// empty message clears it.
+templ TokensError(msg string) {
+	if msg == "" {
+		<div id="token-error" hx-swap-oob="outerHTML"></div>
+	} else {
+		<div id="token-error" hx-swap-oob="outerHTML" class="mb-4 rounded bg-red-100 px-4 py-3 text-sm text-red-800">{ msg }</div>
+	}
+}

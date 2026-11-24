@@ -1,0 +1,83 @@
+package templates
+
+import (
+	"context"
+	"fmt"
+)
+
+templ AdminLayout(title, nonce string, currentSection string) {
+	@Layout(title+" · Admin", nonce) {
+		<nav class="border-b border-zinc-700 bg-zinc-900 text-white">
+			<div class="mx-auto flex max-w-4xl items-center gap-6 px-6 py-3 text-sm">
+				<span class="font-semibold">Admin</span>
+				@adminNavLink("index", "Overview", currentSection)
+				@adminNavLink("users", "Users", currentSection)
+				if approvalsNavShown(ctx) {
+					@adminNavLink("approvals", approvalsNavLabel(ctx), currentSection)
+				}
+				@adminNavLink("connections", "Connections", currentSection)
+				@adminNavLink("reservations", "Reservations", currentSection)
+				<a href="/dashboard" class="ml-auto text-zinc-300 hover:text-white">← Back to user view</a>
+			</div>
+		</nav>
+		{ children... }
+	}
+}
+
+templ adminNavLink(section, label, currentSection string) {
+	if section == currentSection {
+		<span class="font-medium text-white border-b-2 border-white pb-0.5">{ label }</span>
+	} else {
+		<a href={ adminNavHref(section) } class="text-zinc-300 hover:text-white">{ label }</a>
+	}
+}
+
+func adminNavHref(section string) templ.SafeURL {
+	switch section {
+	case "index":
+		return "/admin"
+	case "users":
+		return "/admin/users"
+	case "approvals":
+		return "/admin/approvals"
+	case "connections":
+		return "/admin/connections"
+	case "reservations":
+		return "/admin/reservations"
+	default:
+		return "/admin"
+	}
+}
+
+// pendingCountKey is the context key of WithPendingCount.
+type pendingCountKey struct{}
+
+// PendingCounter returns the number of accounts that wait for approval.
+type PendingCounter func(ctx context.Context) (int64, error)
+
+// WithPendingCount returns ctx with the counter the admin menu calls for
+// its item "Freischaltungen (n)". The item is shown only when the context
+// of the render carries a counter (approval and closed mode), and the
+// counter runs only when a page with the menu is rendered.
+func WithPendingCount(ctx context.Context, count PendingCounter) context.Context {
+	return context.WithValue(ctx, pendingCountKey{}, count)
+}
+
+func approvalsNavShown(ctx context.Context) bool {
+	count, _ := ctx.Value(pendingCountKey{}).(PendingCounter)
+	return count != nil
+}
+
+// approvalsNavLabel is the text of the menu item; without the number when
+// the counter fails (the counter logs the error).
+func approvalsNavLabel(ctx context.Context) string {
+	count, _ := ctx.Value(pendingCountKey{}).(PendingCounter)
+	if count == nil {
+		return "Freischaltungen"
+	}
+	n, err := count(ctx)
+	if err != nil {
+		return "Freischaltungen"
+	}
+	return fmt.Sprintf("Freischaltungen (%d)", n)
+}

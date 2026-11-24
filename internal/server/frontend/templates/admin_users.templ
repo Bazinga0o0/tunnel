@@ -1,0 +1,137 @@
+package templates
+
+import (
+	"fmt"
+	"net/url"
+	"strconv"
+
+	"github.com/Bazinga0o0/tunnel/internal/server/db/sqlcgen"
+)
+
+// AdminUsersData is the view model for the /admin/users list page.
+type AdminUsersData struct {
+	Rows      []sqlcgen.ListUsersWithSearchRow
+	Query     string
+	Page      int
+	PageSize  int
+	Total     int64
+	CSRFToken string
+	CSPNonce  string
+}
+
+// PageURL is the link to page n of the current search, with the search term
+// query-escaped.
+func (d AdminUsersData) PageURL(n int) string {
+	return "/admin/users?q=" + url.QueryEscape(d.Query) + "&page=" + strconv.Itoa(n)
+}
+
+func (d AdminUsersData) TotalPages() int {
+	if d.PageSize <= 0 {
+		return 1
+	}
+	t := int(d.Total) / d.PageSize
+	if int(d.Total)%d.PageSize > 0 {
+		t++
+	}
+	return t
+}
+
+templ AdminUsersPage(data AdminUsersData) {
+	@AdminLayout("Users", data.CSPNonce, "users") {
+		<main class="mx-auto max-w-4xl px-6 py-12">
+			<h1 class="text-2xl font-semibold mb-6">Users</h1>
+			<div class="mb-4">
+				<input
+					type="search"
+					name="q"
+					value={ data.Query }
+					placeholder="Search by email…"
+					class="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+					hx-get="/admin/users"
+					hx-trigger="input changed delay:200ms"
+					hx-target="#users-table"
+					hx-include="[name='q']"
+				/>
+			</div>
+			<div id="users-table">
+				@AdminUsersTable(data)
+			</div>
+		</main>
+	}
+}
+
+templ AdminUsersTable(data AdminUsersData) {
+	<div class="text-sm text-zinc-500 mb-2">
+		{ fmt.Sprintf("%d user(s) found", data.Total) }
+	</div>
+	if len(data.Rows) == 0 && data.Total > 0 {
+		<p class="text-zinc-500 text-sm">No users on this page.</p>
+	} else if len(data.Rows) == 0 {
+		<p class="text-zinc-500 text-sm">No users match your search.</p>
+	} else {
+		<table class="w-full text-sm border border-zinc-200 rounded bg-white">
+			<thead class="bg-zinc-50 text-left">
+				<tr>
+					<th class="px-4 py-2 font-medium text-zinc-600">ID</th>
+					<th class="px-4 py-2 font-medium text-zinc-600">Email</th>
+					<th class="px-4 py-2 font-medium text-zinc-600">Status</th>
+					<th class="px-4 py-2 font-medium text-zinc-600">Joined</th>
+					<th class="px-4 py-2"></th>
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-zinc-100">
+				for _, row := range data.Rows {
+					@AdminUsersRow(row)
+				}
+			</tbody>
+		</table>
+	}
+	// The pager is shown also on a page past the end, so that there is a
+	// way back; "Previous" there leads to the last page.
+	if data.TotalPages() > 1 {
+		<div class="mt-4 flex gap-2 text-sm">
+			if data.Page > 1 {
+				<a
+					href={ templ.SafeURL(data.PageURL(min(data.Page-1, data.TotalPages()))) }
+					class="rounded border border-zinc-300 px-3 py-1 hover:bg-zinc-50"
+				>Previous</a>
+			}
+			<span class="px-3 py-1 text-zinc-500">{ fmt.Sprintf("Page %d of %d", data.Page, data.TotalPages()) }</span>
+			if data.Page < data.TotalPages() {
+				<a
+					href={ templ.SafeURL(data.PageURL(data.Page + 1)) }
+					class="rounded border border-zinc-300 px-3 py-1 hover:bg-zinc-50"
+				>Next</a>
+			}
+		</div>
+	}
+}
+
+templ AdminUsersRow(row sqlcgen.ListUsersWithSearchRow) {
+	<tr class="hover:bg-zinc-50">
+		<td class="px-4 py-2 text-zinc-500">{ fmt.Sprint(row.ID) }</td>
+		<td class="px-4 py-2 font-mono">{ row.Email }</td>
+		<td class="px-4 py-2">
+			<div class="flex gap-1 flex-wrap">
+				if row.EmailVerifiedAt.Valid {
+					<span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800">verified</span>
+				} else {
+					<span class="rounded-full bg-yellow-100 px-2 py-0.5 text-xs text-yellow-800">unverified</span>
+				}
+				if row.IsAdmin {
+					<span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">admin</span>
+				}
+				if row.DisabledAt.Valid {
+					<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800">disabled</span>
+				}
+			</div>
+		</td>
+		<td class="px-4 py-2 text-zinc-500">{ row.CreatedAt.Time.Format("2006-01-02") }</td>
+		<td class="px-4 py-2 text-right">
+			<a
+				href={ templ.SafeURL(fmt.Sprintf("/admin/users/%d", row.ID)) }
+				class="text-zinc-600 underline hover:text-zinc-900"
+			>View</a>
+		</td>
+	</tr>
+}

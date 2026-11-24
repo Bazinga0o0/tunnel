@@ -1,0 +1,31 @@
+package templates
+
+type VerifyData struct {
+	// Token is the verification token of a valid link. When set (and ErrMsg
+	// is empty) the page shows the form that submits it.
+	Token     string
+	ErrMsg    string
+	CSRFToken string
+	CSPNonce  string
+}
+
+templ VerifyPage(data VerifyData) {
+	@Layout("Verify email", data.CSPNonce) {
+		<main class="mx-auto max-w-md px-6 py-12">
+			<h1 class="text-2xl font-semibold mb-4">Email verification</h1>
+			if data.ErrMsg != "" {
+				<div class="mb-4 rounded bg-red-100 px-4 py-3 text-sm text-red-800">{ data.ErrMsg }</div>
+				<p class="text-sm text-zinc-600">
+					<a href="/login" class="underline">Log in</a> and request a new verification email from your dashboard.
+				</p>
+			} else if data.Token != "" {
+				<p class="mb-4 text-sm text-zinc-600">Confirm that this email address belongs to you.</p>
+				<form method="post" action="/verify">
+					<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+					<input type="hidden" name="token" value={ data.Token }/>
+					<button type="submit" class="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800">Verify my email address</button>
+				</form>
+			}
+		</main>
+	}
+}

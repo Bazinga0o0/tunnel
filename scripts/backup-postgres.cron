@@ -1,0 +1,17 @@
+# /etc/cron.d/tunneld-backup
+# Nightly Postgres backup for tunneld. Install with (as root, from the
+# extracted release archive):
+#   install -m 0755 -o root -g root scripts/backup-postgres.sh /opt/tunneld/backup-postgres.sh
+#   install -m 0644 -o root -g root scripts/backup-postgres.cron /etc/cron.d/tunneld-backup
+#
+# Output goes to the journal / syslog through logger, not to a file. Read it with:
+#   journalctl -t tunneld-backup
+#
+# Restore the most recent dump:
+#   gunzip -c /var/backups/postgres/tunneld-LATEST.sql.gz \
+#     | docker exec -i tunneld-postgres pg_restore -U tunneld -d tunneld --clean --if-exists
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 3 * * *  root  { /opt/tunneld/backup-postgres.sh || echo "backup FAILED with exit status $?"; } 2>&1 | logger -t tunneld-backup

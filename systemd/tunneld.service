@@ -1,0 +1,88 @@
+[Unit]
+Description=tunneld (HTTP + TCP + UDP tunneling server)
+Documentation=https://github.com/Bazinga0o0/tunnel
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=tunneld
+Group=tunneld
+ExecStart=/opt/tunneld/tunneld serve --config /etc/tunneld/config.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+# Bind privileged ports (443) as a non-root user. No other capability is kept.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Files the service creates (certificate cache) are private to its account.
+UMask=0077
+
+# --- Resource limits -------------------------------------------------------
+# Every tunnel, edge connection and UDP flow costs file descriptors.
+LimitNOFILE=65536
+# Hard memory ceiling for the service's cgroup (needs cgroup v2, the default
+# on Ubuntu 22.04+). The kernel kills and systemd restarts the service when it
+# is exceeded. Tune it to the host: keep it below the RAM that is left after
+# PostgreSQL and the operating system.
+MemoryMax=2G
+# Soft limit for the Go runtime, 256 MiB below MemoryMax: as the process nears
+# it the garbage collector works harder, before the kernel would end the
+# process. The 256 MiB are left for memory outside the Go heap, the kernel's
+# socket buffers above all, which cgroup v2 charges to the service too. The
+# default limits (edge.max_conns, http_server.max_conns, tunnel.max_sessions,
+# ...) are sized so that their worst case stays below 1.5 GiB. When you change
+# MemoryMax, change GOMEMLIMIT with it; the server warns at start-up when the
+# configured limits can exceed GOMEMLIMIT. A GOMEMLIMIT in /etc/tunneld/env
+# overrides this one.
+Environment=GOMEMLIMIT=1792MiB
+
+# --- File system -----------------------------------------------------------
+# The whole file system is read-only for the service. The only writable
+# location is the certificate cache below: StateDirectory= creates
+# /var/lib/tunneld/certs if needed, gives it to the service account and makes
+# it writable. tls.acme.cache_dir in the config must point there.
+ProtectSystem=strict
+StateDirectory=tunneld/certs
+StateDirectoryMode=0700
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+# --- Kernel and process isolation ------------------------------------------
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+
+# --- Network and system calls ----------------------------------------------
+# IPv4/IPv6 for the listeners, PostgreSQL on loopback, SMTP, ACME and DNS;
+# AF_UNIX for local sockets. Everything else (netlink, packet, ...) is denied.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+# Allow the usual service system calls, minus the privileged and
+# resource-tuning groups. A denied call returns EPERM instead of killing the
+# process, so an unexpected call shows up as an error in the journal.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# Env file (root:tunneld, mode 0640; read by systemd before it drops
+# privileges). Holds secrets such as IONOS_API_KEY.
+# The leading "-" makes systemd tolerate the file being absent.
+EnvironmentFile=-/etc/tunneld/env
+
+[Install]
+WantedBy=multi-user.target

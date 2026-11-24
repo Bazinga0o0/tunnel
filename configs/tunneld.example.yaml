@@ -1,0 +1,283 @@
+# tunneld server configuration.
+#
+# Unknown keys are an error, so a misspelt or misplaced key stops the server
+# instead of being ignored. Durations need a unit (10s, 5m, 168h).
+#
+# Limits and timeouts (the commented blocks further down): leave a key out or
+# set it to zero (0; for a duration 0s, as a bare 0 has no unit) for the
+# default shown next to it; a negative value switches the limit off where the
+# comment says so. The server logs a warning at start-up for each protection
+# a negative value switches off.
+#
+# This file holds secrets (database password, CSRF key). Keep it
+# root:tunneld 0640 or 0600; the server warns when other users can read it.
+
+domain: tunnel.localhost
+
+listen:
+  tunnel_addr: ":7443"
+  http_addr: ":443"
+
+tls:
+  # Exactly one of the three TLS sources must be configured:
+  #   - self_signed_hosts  (dev only; with database.url the server warns)
+  #   - cert_file + key_file  (static PEM files)
+  #   - acme  (Let's Encrypt Wildcard via DNS-01)
+  # The server logs which source is active.
+  self_signed_hosts:
+    - tunnel.localhost
+    - "*.localhost"
+
+  # cert_file: "/etc/tunneld/cert.pem"
+  # key_file: "/etc/tunneld/key.pem"
+
+  # Production: obtain a Wildcard cert via Let's Encrypt DNS-01 (IONOS).
+  # The IONOS API key must be in the IONOS_API_KEY env var (format:
+  # "public_prefix.private_secret"). Certificate and ACME account are cached
+  # in <cache_dir>/production, or <cache_dir>/staging with staging: true; a
+  # valid certificate from an older version at the top of cache_dir is copied
+  # there once. A valid cached certificate is used without contacting Let's
+  # Encrypt; renewal is checked at start-up and every 12 hours (hourly in the
+  # last three days). When no certificate can be obtained the server waits
+  # and tries again after 1, 2, 4 ... minutes, at most hourly, also across
+  # restarts. cache_dir must be writable.
+  #
+  # acme:
+  #   email: "you@example.org"
+  #   dns_provider: "ionos"
+  #   domains:                   # must cover the domain and app.<domain>
+  #     - "example.org"
+  #     - "*.example.org"
+  #   cache_dir: "/var/lib/tunneld/certs"   # absolute path
+  #   staging: false   # set true while testing; nobody trusts staging certificates
+
+auth:
+  # Either auth.tokens (static dev tokens, no DB) OR database.url + csrf_key
+  # (production). Exactly one of tokens / database.url must be set. A static
+  # token needs at least 16 characters.
+  # tokens:
+  #   - replace_with_a_random_token_of_16_or_more_characters
+  #
+  # csrf_key is required whenever database.url is set. It must be a
+  # base64-encoded 32-byte random value. Generate one with:
+  #     ./bin/tunneld admin gen-csrf-key
+  # then paste the output below.
+  csrf_key: "REPLACE_WITH_OUTPUT_OF_TUNNELD_ADMIN_GEN_CSRF_KEY"
+  #
+  # signup (database mode only) is how new accounts start:
+  #   open      anyone signs up and confirms the email address (the default)
+  #   approval  as open, then the account waits until an admin approves it;
+  #             it can log in to the web UI but gets no token, no reservation
+  #             and no tunnel. limits.pending_account_ttl deletes accounts
+  #             that wait too long
+  #   closed    no sign-up page; only an admin creates accounts (admin CLI).
+  #             Otherwise as approval: accounts that wait stay waiting
+  # signup: open
+
+database:
+  # Percent-encode special characters (such as # / ? @) in the password.
+  url: "postgres://tunneld:tunneld_dev_password@127.0.0.1:5432/tunneld?sslmode=disable"
+
+# Transactional email (optional). When mail.smtp.host is empty, email is
+# disabled — signup still works but verification / password-reset links are
+# not mailed. For local dev point at Mailhog (`make dev-up`).
+# mail:
+#   from: "noreply@example.org"   # required with smtp.host: a plain address, no display name
+#   queue_size: 256          # mails waiting for SMTP; when full, new ones are dropped and logged; at most 4096
+#   smtp:
+#     host: "127.0.0.1"
+#     port: 1025             # required with host: 1 to 65535
+#     # Mailhog needs no auth; a production SMTP (Resend/Postmark/etc.) does.
+#     auth_required: true
+#     username: "apikey"
+#     password: "..."
+#     # Mail is sent only over TLS (STARTTLS, or port 465) unless
+#     # allow_plaintext is set. Set it only for a mail catcher on this
+#     # machine such as Mailhog; the server logs a warning when it is set.
+#     allow_plaintext: false
+#     dial_timeout: 10s      # negative: no separate connect timeout (send_timeout still bounds it)
+#     send_timeout: 30s      # one delivery, connect to QUIT; must not be negative
+
+# Frontend (HTMX) wiring. public_base_url is used when composing links in
+# transactional emails; it must be an https URL (http only for localhost).
+# Leave empty to skip email dispatch. The rate limits count per client
+# address (IPv6 per /64) and per typed account address; a negative count
+# disables a limit.
+# frontend:
+#   public_base_url: "https://app.example.org"
+#   login_failures_per_account: 10
+#   login_failures_per_ip: 30
+#   login_failure_window: 15m
+#   logins_per_account: 30         # successful logins (password matched, session stored) per address
+#                                  # in the login window; wrong passwords never count. Bounds how fast
+#                                  # one account creates sessions and audit rows (off: no such bound)
+#   signups_per_ip: 5
+#   signup_window: 1h
+#   reset_requests_per_ip: 3
+#   reset_requests_per_account: 3
+#   reset_request_window: 1h
+#   rate_limit_max_keys: 1600      # entries per limiter table; about 8.6 KiB a key over all tables.
+#                                  # A full table never refuses: it evicts its oldest entry, except
+#                                  # the table of failed logins per account, which keeps an entry one
+#                                  # pass of the table longer for each failure after its first
+#                                  # (pushing out e failures of one account costs at least e times
+#                                  # this number minus one failed logins of other addresses) and
+#                                  # logs when it pushes out live entries
+#   max_request_body_bytes: 65536  # negative: no size limit (multipart stays refused)
+#   user_actions_per_hour: 120     # per user: create/revoke token, reserve/release name and
+#                                  # password change on /settings together
+#   unauthenticated_audit_rows_per_minute: 120 # audit rows of failed logins and reset requests,
+#                                  # together per minute; the rest is counted in one summary row
+#                                  # a minute (audit.unauthenticated.dropped). Negative: no bound
+
+# TCP tunneling (optional). When enabled, clients can run `tunnel tcp <port>`
+# to expose arbitrary TCP services behind a dynamically-allocated public port.
+# The server picks a free port from the pool; with database.url a client can
+# ask for a specific port only when an admin has reserved it for the user
+# (admin panel, Reservations) or a registered service has made the user the
+# holder of one of its tcp_ports (see services below; the random draw skips
+# these ports). Port ranges start at 1024 or above and must not contain the
+# server's own ports (listen.*, metrics.addr, service_api.addr). Open the
+# range in the firewall yourself.
+# tcp:
+#   enabled: true
+#   port_range:
+#     low: 10000
+#     high: 20000
+
+# UDP tunneling (optional), the same for `tunnel udp <port>`.
+# udp:
+#   enabled: true
+#   port_range:
+#     low: 30000
+#     high: 40000
+#   flow_idle_timeout: 30s   # a flow ends this long after the visitor's last datagram
+#   flow_buffer_size: 64     # datagrams buffered per flow; at most 256
+
+# Prometheus metrics, served at /_tunneld/metrics without authentication.
+# The address must be a loopback address unless allow_non_loopback is set.
+# addr: "" (an empty string in quotes) disables the endpoint; a missing key
+# or "addr:" without a value selects the default below. The server does not
+# start when it cannot bind the address.
+# metrics:
+#   addr: "127.0.0.1:9090"
+#   allow_non_loopback: false
+
+# Registered services (optional, database mode only). Requests to
+# <subdomain>.<domain> go, once their tunnel API token has been checked, to
+# the service's upstream on this machine, with the account in the headers
+# X-Tunnel-Account-Id and X-Tunnel-Account-Email and without Authorization.
+# The subdomain is then reserved for the system. tcp_ports are ports of
+# tcp.port_range whose holder the service sets through the service API; they
+# need tcp.enabled and service_api.addr. docs/services.md has the whole
+# contract.
+# The service's secret for the service API is read from secret_file when
+# tunneld serve starts (a change takes a restart). It needs at least 32
+# characters (openssl rand -hex 32), and each service its own. Keep the file
+# root:tunneld 0640 in a directory root:tunneld 0750 such as
+# /etc/tunneld/services; the server does not start when it cannot read it.
+# services:
+#   - name: myservice                  # 1 to 32 characters of a-z, 0-9 and "-"; unique
+#     subdomain: myservice             # one DNS label, not app; unique. With acme,
+#                                      # tls.acme.domains must cover <subdomain>.<domain>
+#     upstream: "http://127.0.0.1:8080"  # http:// with a loopback host and a port, no path
+#     secret_file: "/etc/tunneld/services/myservice.secret"    # absolute path; required
+#     tcp_ports: [20000]               # optional; within tcp.port_range; a port belongs to
+#                                      # one service
+#     max_request_body_bytes: 67108864 # 0 selects this default (64 MiB); at most 268435456
+#
+# The service API, through which a service sets the holder of its TCP ports
+# (PUT, DELETE and GET /v1/tcp-ports/{port}/holder with the service's secret
+# as Bearer token). Loopback addresses only; required as soon as a service has
+# tcp_ports. Its port must not lie in tcp.port_range or udp.port_range.
+# service_api:
+#   addr: 127.0.0.1:9100
+
+# ---------------------------------------------------------------------------
+# Limits and timeouts. The values shown are the defaults.
+# ---------------------------------------------------------------------------
+
+# The public HTTPS listener (listen.http_addr): web UI and HTTP tunnels.
+# http_server:
+#   read_header_timeout: 10s     # TLS handshake and request head; cannot be disabled
+#   idle_timeout: 120s           # keep-alive connection waiting for its next request; cannot be disabled
+#   max_header_bytes: 65536      # request head, also for later requests on a tunnel; cannot be disabled, 4096 to 1048576
+#   max_conns: 1100              # open connections in total
+#   max_conns_per_ip: 128        # per client address (IPv6: per /64)
+#   frontend_read_timeout: 15s   # reading a web UI request body (not the handler's work after it)
+#   frontend_write_timeout: 30s  # writing a web UI response
+
+# The tunnel listener (listen.tunnel_addr) and the client sessions.
+# tunnel:
+#   handshake_timeout: 10s           # accept to successful login
+#   verify_timeout: 5s               # one token check or reservation lookup
+#   max_unauth_conns: 256            # connections that have not logged in yet
+#   max_unauth_conns_per_ip: 16
+#   max_preauth_frame_bytes: 4096    # at most 1048576
+#   max_control_frame_bytes: 16384   # at most 1048576
+#   accept_backlog: 32               # at most 256
+#   max_streams_per_session: 512
+#   max_streams_per_user: 256        # all sessions of one user together (HTTP, TCP and UDP); not in static-token mode
+#   control_burst: 20                # control messages at once ...
+#   control_refill_per_second: 5     # ... and per second after that
+#   max_sessions_per_user: 10
+#   max_sessions: 350
+#   revalidate_interval: 30s         # closes sessions whose token was revoked or whose account was disabled; at least 1s
+
+# Visitor connections to the tunnels.
+#
+# Memory, as counted from measurements: a visitor connection up to about
+# 700 KiB (its tunnel stream's buffer while the visitor does not read), a UDP
+# flow 96 KiB, a tunnel session 96 KiB plus 80 KiB for a UDP and 16 KiB for a
+# TCP port, a connection in the TLS handshake 128 KiB, a public HTTPS
+# connection 136 KiB. The defaults of edge.max_conns, edge.udp.max_flows,
+# tunnel.max_sessions, http_server.max_conns and frontend.rate_limit_max_keys
+# keep the worst case below 1.5 GiB, for the unit's MemoryMax=2G with
+# GOMEMLIMIT=1792MiB. Raise them only together with those two; the server
+# warns at start-up when the limits can exceed GOMEMLIMIT.
+# edge:
+#   max_conns: 1000                  # HTTP and TCP tunnels together
+#   http:
+#     max_conns_per_tunnel: 256
+#     max_conns_per_ip: 64           # per visitor address and tunnel
+#     idle_timeout: 5m
+#   tcp:
+#     max_conns_per_tunnel: 256
+#     max_conns_per_ip: 64
+#     idle_timeout: 30m
+#   udp:
+#     max_flows_per_port: 256
+#     max_flows_per_ip: 64
+#     max_flows: 768
+#     reply_credit: 256              # replies per datagram from the visitor
+#     max_reply_credit: 4096
+#     max_queued_bytes_per_flow: 262144
+#     max_queued_bytes_per_port: 2097152
+#     max_queued_bytes: 67108864
+
+# Accounts.
+# limits:
+#   max_reservations_per_user: 10    # subdomains a user may reserve
+#   max_tokens_per_user: 25          # active API tokens
+#   max_token_name_length: 64        # characters
+#   max_user_agent_bytes: 256        # stored with a web session
+#   min_password_length: 8           # characters
+#   min_admin_password_length: 12    # characters, for passwords an admin sets
+#   max_password_bytes: 1024
+#   hash_concurrency: 4              # password hashes at a time ...
+#   hash_wait: 5s                    # ... and the longest wait for a slot
+#   hash_per_ip: 2                   # web requests with hash work in flight per client address
+#                                    # (IPv6: per /64); one more gets 429 at once. Unset, it is
+#                                    # half of hash_concurrency, at least 1 and at most 2
+#                                    # (8 -> 2, 4 -> 2, 3 -> 1, 2 -> 1, 1 -> 1: with 1 one
+#                                    # address can hold the only slot). A set value must be
+#                                    # lower than hash_concurrency; negative switches it off
+#   # Off unless set (at least 1h); it deletes accounts that are unverified,
+#   # not admin, not disabled, older than this and own no token and no reservation.
+#   unverified_account_ttl: 168h
+#   # With auth.signup set to approval or closed: accounts that wait for
+#   # approval longer than this are deleted; admins, disabled accounts and
+#   # accounts that own a token or a reservation stay. Zero selects 720h,
+#   # negative switches it off; a set value is at least 1h. The sweep at
+#   # start only logs how many are due; the hourly sweeps delete them.
+#   pending_account_ttl: 720h

@@ -1,0 +1,135 @@
+package templates
+
+type LoginData struct {
+	ErrMsg         string
+	CSRFToken      string
+	CSPNonce       string
+	ResetSucceeded bool
+	// PasswordChanged shows the note after a password change on the
+	// settings page that could not give the browser a new session.
+	PasswordChanged bool
+	// SignupDone shows the note after a sign-up. Its text is the same
+	// whether or not the address already had an account.
+	SignupDone bool
+	// SignupOpen shows the link to the sign-up page. It is false while
+	// sign-up is closed (auth.signup: closed).
+	SignupOpen bool
+}
+
+// HoneypotField is the name of the sign-up form's field that people do not
+// see (SignupPage). It is no name a browser or password manager fills in on
+// its own (unlike "website" or "url"), so that only a bot fills it.
+const HoneypotField = "hp_field_x"
+
+type SignupData struct {
+	ErrMsg      string
+	Email       string // the address as typed, to fill the field again
+	EmailErr    string // field error for the address
+	PasswordErr string // field error for the password
+	CSRFToken   string
+	CSPNonce    string
+}
+
+templ LoginPage(data LoginData) {
+	@Layout("Log in", data.CSPNonce) {
+		<main class="mx-auto max-w-md px-6 py-12">
+			<h1 class="text-2xl font-semibold mb-6">Log in</h1>
+			if data.ResetSucceeded {
+				<div class="mb-4 rounded border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+					Password reset — please log in with your new password.
+				</div>
+			}
+			if data.PasswordChanged {
+				<div class="mb-4 rounded border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+					Your password was changed. Please log in with your new password.
+				</div>
+			}
+			if data.SignupDone {
+				<div class="mb-4 rounded border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+					Thanks for signing up. Check your inbox for an email from us, then log in below.
+				</div>
+			}
+			if data.ErrMsg != "" {
+				<div class="mb-4 rounded bg-red-100 px-4 py-3 text-sm text-red-800">{ data.ErrMsg }</div>
+			}
+			<form method="post" action="/login" class="space-y-4">
+				<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+				<label class="block">
+					<span class="text-sm font-medium">Email</span>
+					<input type="email" name="email" required autofocus class="mt-1 block w-full rounded border-zinc-300 px-3 py-2"/>
+				</label>
+				<label class="block">
+					<span class="text-sm font-medium">Password</span>
+					<input type="password" name="password" required class="mt-1 block w-full rounded border-zinc-300 px-3 py-2"/>
+				</label>
+				<button type="submit" class="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800">Log in</button>
+			</form>
+			<p class="mt-4 text-sm text-zinc-600 text-right">
+				<a href="/forgot-password" class="underline">Forgot password?</a>
+			</p>
+			if data.SignupOpen {
+				<p class="mt-6 text-sm text-zinc-600">
+					No account? <a href="/signup" class="underline">Sign up</a>.
+				</p>
+			}
+		</main>
+	}
+}
+
+// SignupPage is the sign-up form. Its field HoneypotField is a honeypot: CSS
+// moves it out of sight and it takes no tab stop, so people leave it empty;
+// a request that fills it comes from a bot (signupSubmit). Notes about it
+// belong in Go comments like this one: HTML comments reach the page.
+templ SignupPage(data SignupData) {
+	@Layout("Sign up", data.CSPNonce) {
+		<main class="mx-auto max-w-md px-6 py-12">
+			<h1 class="text-2xl font-semibold mb-6">Create your account</h1>
+			if data.ErrMsg != "" {
+				<div class="mb-4 rounded bg-red-100 px-4 py-3 text-sm text-red-800">{ data.ErrMsg }</div>
+			}
+			<form method="post" action="/signup" class="space-y-4">
+				<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+				<label class="block">
+					<span class="text-sm font-medium">Email</span>
+					<input type="email" name="email" value={ data.Email } required autofocus class="mt-1 block w-full rounded border-zinc-300 px-3 py-2"/>
+					if data.EmailErr != "" {
+						<span class="mt-1 block text-sm text-red-700">{ data.EmailErr }</span>
+					}
+				</label>
+				<label class="block">
+					<span class="text-sm font-medium">Password</span>
+					<input type="password" name="password" required minlength="8" class="mt-1 block w-full rounded border-zinc-300 px-3 py-2"/>
+					if data.PasswordErr != "" {
+						<span class="mt-1 block text-sm text-red-700">{ data.PasswordErr }</span>
+					}
+				</label>
+				<div class="absolute -left-[10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+					<label>
+						<span>Bitte leer lassen</span>
+						<input type="text" name={ HoneypotField } value="" tabindex="-1" autocomplete="off"/>
+					</label>
+				</div>
+				<button type="submit" class="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800">Create account</button>
+			</form>
+			<p class="mt-6 text-sm text-zinc-600">
+				Already have an account? <a href="/login" class="underline">Log in</a>.
+			</p>
+		</main>
+	}
+}
+
+// SignupClosedPage is the answer to the sign-up page while sign-up is
+// closed (auth.signup: closed): only an admin creates accounts.
+templ SignupClosedPage(cspNonce string) {
+	@Layout("Registrierung geschlossen", cspNonce) {
+		<main class="mx-auto max-w-md px-6 py-12">
+			<h1 class="text-2xl font-semibold mb-6">Registrierung geschlossen</h1>
+			<p class="text-sm text-zinc-600">
+				Neue Konten legt nur ein Admin an.
+			</p>
+			<p class="mt-6 text-sm text-zinc-600">
+				Already have an account? <a href="/login" class="underline">Log in</a>.
+			</p>
+		</main>
+	}
+}

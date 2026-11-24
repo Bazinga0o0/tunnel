@@ -1,0 +1,15 @@
+server: tunnel.localhost:7443
+token: twbl_devtoken_replace_me
+
+# Checks the server's TLS certificate. Keep this at false.
+# Setting it to true switches the check off: anyone on the network path can
+# then read the token and the tunnelled traffic, and the client prints a
+# warning on every start. Only a local dev server with a throw-away
+# self-signed certificate needs it.
+insecure_skip_verify: false
+
+# Server certificate from a private CA: point ca_file at the CA certificate
+# (PEM) instead of switching verification off. When set, only certificates
+# issued by a CA in this file are accepted. A relative path is resolved
+# against the directory of this config file.
+# ca_file: /path/to/ca.pem

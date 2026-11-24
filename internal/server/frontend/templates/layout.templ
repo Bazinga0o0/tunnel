@@ -1,0 +1,32 @@
+package templates
+
+// htmxConfig is htmx's default response handling plus two rules: 422 and
+// 429 responses are swapped. The handlers answer field errors of htmx forms
+// with 422 and an out-of-band error fragment, and a user over the limit of
+// the user area's actions with 429, the same kind of fragment and
+// HX-Reswap: none (the target stays as it is); without the rules htmx would
+// drop both like every other 4xx response. Every other 4xx and 5xx response
+// is still not swapped.
+const htmxConfig = `{"responseHandling":[` +
+	`{"code":"204","swap":false},` +
+	`{"code":"[23]..","swap":true},` +
+	`{"code":"422","swap":true},` +
+	`{"code":"429","swap":true},` +
+	`{"code":"[45]..","swap":false,"error":true}]}`
+
+templ Layout(title, nonce string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="htmx-config" content={ htmxConfig }/>
+			<title>{ title } · tunnel</title>
+			<link rel="stylesheet" href="/_static/app.css"/>
+		</head>
+		<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+			{ children... }
+			<script src="/_static/htmx.min.js" nonce={ nonce }></script>
+		</body>
+	</html>
+}

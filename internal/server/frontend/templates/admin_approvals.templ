@@ -1,0 +1,141 @@
+package templates
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/Bazinga0o0/tunnel/internal/server/db/sqlcgen"
+)
+
+// AdminApprovalsData is the view model for /admin/approvals.
+type AdminApprovalsData struct {
+	// Rows are the accounts that wait for approval, oldest first.
+	Rows []sqlcgen.ListPendingUsersRow
+	// Now is the time the ages are counted to.
+	Now time.Time
+	// Done and Skipped report what the form just did, one line per account.
+	Done    []string
+	Skipped []string
+	// ErrMsg is shown as a banner (a request that could not be carried out).
+	ErrMsg    string
+	CSRFToken string
+	CSPNonce  string
+}
+
+// AdminApprovalsPage lists the accounts that wait for approval in one form:
+// a checkbox per account, and one button each to approve and to reject what
+// is checked. "alle auswählen" and the question before a rejection need a
+// script; the CSP allows no inline handlers, so a script with the page's
+// nonce attaches the listeners. The reject button is hidden until that
+// script runs, so that a rejection is never sent without the question.
+templ AdminApprovalsPage(data AdminApprovalsData) {
+	@AdminLayout("Freischaltungen", data.CSPNonce, "approvals") {
+		<main class="mx-auto max-w-4xl px-6 py-12" id="approvals">
+			<h1 class="mb-2 text-2xl font-semibold">Freischaltungen</h1>
+			<p class="mb-6 text-sm text-zinc-500">
+				Diese Konten warten auf die Freischaltung durch einen Admin. Bis dahin können sie sich anmelden, aber keine Tokens, Reservierungen oder Tunnel nutzen. Ablehnen löscht das Konto mit allem, was dazugehört.
+			</p>
+			if data.ErrMsg != "" {
+				<div class="mb-6 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+					{ data.ErrMsg }
+				</div>
+			}
+			if len(data.Done) > 0 {
+				<div class="mb-6 rounded border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+					<ul>
+						for _, line := range data.Done {
+							<li>{ line }</li>
+						}
+					</ul>
+				</div>
+			}
+			if len(data.Skipped) > 0 {
+				<div class="mb-6 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+					<ul>
+						for _, line := range data.Skipped {
+							<li>{ line }</li>
+						}
+					</ul>
+				</div>
+			}
+			if len(data.Rows) == 0 {
+				<p class="text-sm text-zinc-500">Kein Konto wartet auf Freischaltung.</p>
+			} else {
+				<form method="post" action="/admin/approvals" id="approvals-form">
+					<input type="hidden" name="gorilla.csrf.Token" value={ data.CSRFToken }/>
+					<label class="mb-2 flex items-center gap-2 text-sm text-zinc-600">
+						<input type="checkbox" id="approvals-all"/>
+						alle auswählen
+					</label>
+					<table class="w-full text-sm border border-zinc-200 rounded bg-white">
+						<thead class="bg-zinc-50 text-left">
+							<tr>
+								<th class="px-4 py-2"></th>
+								<th class="px-4 py-2 font-medium text-zinc-600">E-Mail</th>
+								<th class="px-4 py-2 font-medium text-zinc-600">Bestätigt</th>
+								<th class="px-4 py-2 font-medium text-zinc-600">Alter</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-zinc-100">
+							for _, row := range data.Rows {
+								<tr>
+									<td class="px-4 py-2">
+										<input type="checkbox" name="id" value={ fmt.Sprint(row.ID) } aria-label={ "auswählen: " + row.Email }/>
+									</td>
+									<td class="px-4 py-2">
+										<a href={ templ.SafeURL(fmt.Sprintf("/admin/users/%d", row.ID)) } class="underline hover:text-zinc-600">{ row.Email }</a>
+									</td>
+									<td class="px-4 py-2">
+										if row.EmailVerifiedAt.Valid {
+											ja
+										} else {
+											nein
+										}
+									</td>
+									<td class="px-4 py-2 text-zinc-600" title={ row.CreatedAt.Time.UTC().Format("2006-01-02 15:04 UTC") }>
+										{ approvalAge(data.Now.Sub(row.CreatedAt.Time)) }
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+					<div class="mt-4 flex gap-3">
+						<button type="submit" name="action" value="approve" class="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white hover:bg-zinc-700">Freischalten</button>
+						<button type="submit" name="action" value="reject" id="approvals-reject" hidden class="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Ablehnen (löscht)</button>
+					</div>
+				</form>
+				<script nonce={ data.CSPNonce }>
+					(function () {
+						var form = document.getElementById("approvals-form");
+						var all = document.getElementById("approvals-all");
+						var reject = document.getElementById("approvals-reject");
+						all.addEventListener("change", function () {
+							form.querySelectorAll('input[name="id"]').forEach(function (box) { box.checked = all.checked; });
+						});
+						reject.addEventListener("click", function (e) {
+							if (!window.confirm("Die ausgewählten Konten ablehnen? Sie werden endgültig gelöscht.")) {
+								e.preventDefault();
+							}
+						});
+						reject.hidden = false;
+					})();
+				</script>
+			}
+		</main>
+	}
+}
+
+// approvalAge is how long an account has been waiting, coarse: minutes,
+// hours, then days.
+func approvalAge(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%d Tage", int(d/(24*time.Hour)))
+	case d >= 24*time.Hour:
+		return "1 Tag"
+	case d >= time.Hour:
+		return fmt.Sprintf("%d Std.", int(d/time.Hour))
+	default:
+		return fmt.Sprintf("%d Min.", int(d/time.Minute))
+	}
+}
