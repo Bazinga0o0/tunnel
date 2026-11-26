@@ -287,6 +287,7 @@ func TestServicesValidation(t *testing.T) {
 			"    secret_file: /etc/tunneld/services/" + name + ".secret\n    tcp_ports: " + ports + "\n"
 	}
 	services := func(entries ...string) string { return "services:\n" + strings.Join(entries, "") }
+	dir := func(flow string) string { return "    directory: " + flow + "\n" }
 	const tcp = "tcp:\n  enabled: true\n  port_range: {low: 19000, high: 20000}\n"
 	const api = "service_api:\n  addr: \"127.0.0.1:9100\"\n"
 	ww := entry("myservice", "myservice", "http://127.0.0.1:8080", "[19000]")
@@ -326,6 +327,26 @@ func TestServicesValidation(t *testing.T) {
 		"service_api on port 65536": {
 			body: dbBase + tcp + "service_api:\n  addr: \"127.0.0.1:65536\"\n" + services(ww),
 			errs: []string{"service_api.addr", "1 to 65535"}},
+		"directory listed": {
+			body: dbBase + tcp + api + services(ww+dir("{listed: true, title: Demo, description: A demo service}"))},
+		"directory listed without title": {
+			body: dbBase + tcp + api + services(ww+dir("{listed: true}")),
+			errs: []string{`services entry 1 ("myservice")`, "directory.title", "required"}},
+		"directory title too long": {
+			body: dbBase + tcp + api + services(ww+dir(`{title: "`+strings.Repeat("a", 81)+`"}`)),
+			errs: []string{"directory.title", "at most 80"}},
+		"directory description too long": {
+			body: dbBase + tcp + api + services(ww+dir(`{description: "`+strings.Repeat("a", 401)+`"}`)),
+			errs: []string{"directory.description", "at most 400"}},
+		"directory description with line break": {
+			body: dbBase + tcp + api + services(ww+dir(`{description: "a\nb"}`)),
+			errs: []string{"directory.description", "control characters"}},
+		"directory title with direction override": {
+			body: dbBase + tcp + api + services(ww+dir(`{listed: true, title: "a‮b"}`)),
+			errs: []string{"directory.title", "control characters"}},
+		"directory title with outer white space": {
+			body: dbBase + tcp + api + services(ww+dir(`{listed: true, title: " a"}`)),
+			errs: []string{"directory.title", "white space"}},
 		"static tokens": {
 			body: staticBase + tcp + api + services(ww),
 			errs: []string{"services", "database.url"}},

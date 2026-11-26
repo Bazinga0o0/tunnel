@@ -16,6 +16,10 @@ services:
     secret_file: "/etc/tunneld/services/myservice.secret"
     tcp_ports: [20000]
     max_request_body_bytes: 0
+    directory:
+      listed: true
+      title: "My service"
+      description: "What the service is for."
 service_api:
   addr: "127.0.0.1:9100"
 ```
@@ -28,6 +32,7 @@ service_api:
 | `secret_file` | Required. Absolute path of the file with the service's secret for the service API; see [Service secret](#service-secret). |
 | `tcp_ports` | Optional. Ports of `tcp.port_range` whose holder the service sets; a port belongs to one service only. They need `tcp.enabled: true` and `service_api.addr`. |
 | `max_request_body_bytes` | Largest request body to the service. Missing or `0` selects 67108864 (64 MiB), at most 268435456 (256 MiB); a negative value is refused. |
+| `directory` | Optional. `listed`, `title` and `description`; see [Directory](#directory). A service is not listed by default. |
 | `service_api.addr` | Bind address of the service API, `host:port` with a loopback host and a port from 1 to 65535. Unlike `metrics.addr` there is no way around the loopback rule. Required as soon as a service has `tcp_ports`; its port must not lie in `tcp.port_range` or `udp.port_range`. Without any service the API is not started (the log says so). |
 
 The subdomain of a service is reserved for the system at start-up, and by
@@ -121,6 +126,55 @@ GET    /v1/tcp-ports/{port}/holder                     → 200 {"account_id": N}
   call that ends in 500 writes no row; its error line in the log names the
   closed session (`sessions_closed`).
 
+## Directory
+
+A service can list itself in a directory that signed-in accounts can read,
+so that clients can offer the services of a server without being told their
+addresses. Nothing is listed by default.
+
+```yaml
+services:
+  - name: myservice
+    # ...
+    directory:
+      listed: true                       # default false
+      title: "My service"                # required when listed; at most 80 characters
+      description: "What it is for."     # optional; at most 400 characters
+```
+
+`title` and `description` are plain text: valid UTF-8 without control,
+formatting or line-separator characters (no line breaks, no bidirectional
+overrides) and without leading or trailing white space. They are checked
+when the config is loaded, also for a service that is not listed, and a
+client must never insert them into a page as HTML.
+
+**`GET /api/v1/directory`** is served on the web UI hosts: the apex domain
+and `app.<domain>`, for example `https://app.example.org/api/v1/directory`.
+
+- It needs `Authorization: Bearer <token>` with a tunnel API token that the
+  tunnel listener would accept (not revoked, not expired, account not
+  disabled and, with `auth.signup: approval` or `closed`, approved). Without
+  one, or with a token that is not valid, it answers 401 with
+  `WWW-Authenticate: Bearer`; when the token check fails or takes longer
+  than 5 seconds it answers 503.
+- The answer lists the services with `directory.listed: true`, in config
+  order, and nothing else about them (no upstream, port or account):
+
+  ```json
+  {"services":[{"name":"myservice","title":"My service","description":"What it is for.","url":"https://myservice.example.org"}]}
+  ```
+
+  `url` is `https://<subdomain>.<domain>`. With nothing listed the list is
+  empty. The answer has `Cache-Control: no-store`.
+- Every request counts against a limit of 60 per minute and client address
+  (IPv6: per /64), whatever its outcome; over it the answer is 429 with
+  `Retry-After`.
+- The path exists only when at least one service is registered.
+
+**Reloading.** `SIGHUP` applies a changed `directory` of a service
+without a restart, as for `tcp_ports` below. A service whose other fields
+changed at the same time keeps its old directory until the restart.
+
 ## Service secret
 
 **Reloading `tcp_ports`.** Send `SIGHUP` (`sudo systemctl reload tunneld`)
@@ -134,6 +188,8 @@ that fails it logs the error and keeps the running config. Then:
   tunnel that holds it keeps running, and a holder reservation of the port
   stays in the database until you release it in the admin panel
   (Reservations); the service can no longer change it (403).
+- A changed `directory` takes effect at once (see [Directory](#directory)),
+  as long as the service is otherwise unchanged.
 - Every other difference from the running config (listen addresses, TLS,
   database, limits, `tcp.port_range`, a service that is added, removed or
   changed in another field, ...) is ignored and logged as

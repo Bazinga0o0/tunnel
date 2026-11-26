@@ -102,7 +102,31 @@ type Service struct {
 	// 64 MiB (67108864), at most 256 MiB (268435456); negative values are
 	// refused.
 	MaxRequestBodyBytes int64 `yaml:"max_request_body_bytes"`
+	// Directory opts the service into the directory (GET /api/v1/directory on
+	// the web UI host), which signed-in accounts can read. Without it, or
+	// with listed: false, the service is not shown. The fields can be
+	// reloaded with SIGHUP.
+	Directory Directory `yaml:"directory"`
 }
+
+// Directory is the public listing of a service.
+type Directory struct {
+	// Listed makes the service appear in the directory. Default false.
+	Listed bool `yaml:"listed"`
+	// Title is the display name: required when listed, at most
+	// MaxDirectoryTitleRunes characters.
+	Title string `yaml:"title"`
+	// Description is optional, at most MaxDirectoryDescriptionRunes
+	// characters. Title and description are plain text: no control or
+	// formatting characters, no line breaks.
+	Description string `yaml:"description"`
+}
+
+// Limits of the directory texts, in characters.
+const (
+	MaxDirectoryTitleRunes       = 80
+	MaxDirectoryDescriptionRunes = 400
+)
 
 // ServiceAPI configures the service API, through which a service sets the
 // holder of its TCP ports.

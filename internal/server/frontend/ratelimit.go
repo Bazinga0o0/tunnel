@@ -23,6 +23,7 @@ type rateLimiters struct {
 	resetStored  *rateLimiter // reset links per stored address (silent, see issueReset)
 	resend       *rateLimiter // verification mails per user
 	userActions  *rateLimiter // mutating actions of the user area per user
+	directory    *rateLimiter // requests to the directory API per client
 	hashes       *hashBound   // password-hash work in flight per client
 }
 
@@ -54,6 +55,7 @@ func newRateLimiters(o Options) *rateLimiters {
 		resetStored:  newRateLimiter(resolveCount(o.ResetRequestsPerAccount, DefaultResetRequestsPerAccount), resetWindow, maxKeys, now),
 		resend:       newRateLimiter(1, resendInterval, maxKeys, now),
 		userActions:  newRateLimiter(resolveCount(o.UserActionsPerHour, DefaultUserActionsPerHour), userActionWindow, maxKeys, now),
+		directory:    newRateLimiter(DirectoryRequestsPerMinute, time.Minute, maxKeys, now),
 		hashes:       newHashBound(resolveCount(o.HashPerIP, DefaultHashPerIP), maxKeys),
 	}
 }

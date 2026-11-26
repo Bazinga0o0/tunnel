@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -142,6 +143,28 @@ func serviceProxies(cfg *config.Config, v services.Verifier, emails services.Ema
 		proxies[s.Subdomain+"."+cfg.Domain] = h
 	}
 	return proxies, nil
+}
+
+// directoryEntries returns the services of cfg that are listed in the
+// directory, in config order, with their public URL.
+func directoryEntries(cfg *config.Config) []frontend.DirectoryEntry {
+	apex, ok := edgehttp.NormalizeHost(cfg.Domain)
+	if !ok {
+		apex = strings.ToLower(cfg.Domain)
+	}
+	out := []frontend.DirectoryEntry{}
+	for _, s := range cfg.Services {
+		if !s.Directory.Listed {
+			continue
+		}
+		out = append(out, frontend.DirectoryEntry{
+			Name:        s.Name,
+			Title:       s.Directory.Title,
+			Description: s.Directory.Description,
+			URL:         "https://" + s.Subdomain + "." + apex,
+		})
+	}
+	return out
 }
 
 // serviceTCPPorts returns the tcp_ports of every registered service.

@@ -69,7 +69,7 @@ func eventCapacity(n int) int {
 func (r *rateLimiters) tables() []*rateLimiter {
 	return []*rateLimiter{
 		r.loginAccount, r.loginIP, r.logins, r.signupIP, r.resetIP,
-		r.resetAccount, r.resetStored, r.resend, r.userActions,
+		r.resetAccount, r.resetStored, r.resend, r.userActions, r.directory,
 	}
 }
 

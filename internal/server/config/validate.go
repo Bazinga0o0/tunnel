@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -431,6 +432,10 @@ func (c *Config) validateServices() error {
 			return serviceError(n, s.Name, "max_request_body_bytes must be at most %d", maxServiceRequestBody)
 		}
 
+		if err := checkDirectory(s.Directory); err != nil {
+			return serviceError(n, s.Name, "%s", err)
+		}
+
 		if len(s.TCPPorts) == 0 {
 			continue
 		}
@@ -455,6 +460,38 @@ func (c *Config) validateServices() error {
 			}
 			ports[p] = n
 		}
+	}
+	return nil
+}
+
+// checkDirectory checks services[].directory: a listed service needs a
+// title, and both texts must be plain text of bounded length (no control,
+// formatting or line-separator characters, valid UTF-8), whether the service
+// is listed or not, so that listing it later cannot fail.
+func checkDirectory(d Directory) error {
+	if d.Listed && strings.TrimSpace(d.Title) == "" {
+		return errors.New("directory.title is required when directory.listed is true")
+	}
+	if err := checkDirectoryText("directory.title", d.Title, MaxDirectoryTitleRunes); err != nil {
+		return err
+	}
+	return checkDirectoryText("directory.description", d.Description, MaxDirectoryDescriptionRunes)
+}
+
+func checkDirectoryText(field, v string, max int) error {
+	if !utf8.ValidString(v) {
+		return fmt.Errorf("%s is not valid UTF-8", field)
+	}
+	if utf8.RuneCountInString(v) > max {
+		return fmt.Errorf("%s must be at most %d characters", field, max)
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+			return fmt.Errorf("%s must be plain text without control characters or line breaks", field)
+		}
+	}
+	if v != strings.TrimSpace(v) {
+		return fmt.Errorf("%s must not start or end with white space", field)
 	}
 	return nil
 }

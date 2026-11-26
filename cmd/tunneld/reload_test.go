@@ -17,6 +17,7 @@ import (
 
 	"github.com/Bazinga0o0/tunnel/internal/server/config"
 	"github.com/Bazinga0o0/tunnel/internal/server/edgetcp"
+	"github.com/Bazinga0o0/tunnel/internal/server/frontend"
 	"github.com/Bazinga0o0/tunnel/internal/server/registry"
 	"github.com/Bazinga0o0/tunnel/internal/server/services"
 )
@@ -199,4 +200,64 @@ func TestReloadIgnoresWhatNeedsARestart(t *testing.T) {
 	assert.Contains(t, out, "section=metrics")
 	assert.Equal(t, "127.0.0.1:0", e.app.current.Metrics.Address(), "the running config keeps its metrics address")
 	assert.Equal(t, 404, e.status(19002), "the ports change is applied all the same")
+}
+
+// writeDirectory rewrites the config file with the given directory flow
+// mapping on the service (the services entry is the file's last).
+func (e *reloadEnv) writeDirectory(ports, metrics, directory string) {
+	e.write(ports, metrics)
+	f, err := os.OpenFile(e.path, os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(e.t, err)
+	_, err = f.WriteString("    directory: " + directory + "\n")
+	require.NoError(e.t, err)
+	require.NoError(e.t, f.Close())
+}
+
+func TestReloadAppliesTheDirectory(t *testing.T) {
+	e := newReloadEnv(t, "[19000]")
+	e.app.directory = &frontend.Directory{}
+	e.app.directory.Set(directoryEntries(e.app.cfg))
+	require.Empty(t, e.app.directory.Entries(), "a service is not listed by default")
+
+	e.writeDirectory("[19000]", "127.0.0.1:0", `{listed: true, title: Svc, description: "A service"}`)
+	e.app.reloadFromFile()
+	assert.Equal(t, []frontend.DirectoryEntry{{Name: "svc", Title: "Svc", Description: "A service", URL: "https://svc-a.tunnel.test"}},
+		e.app.directory.Entries())
+	assert.Contains(t, e.logs.String(), "service directory reloaded")
+	assert.NotContains(t, e.logs.String(), "requires a restart", "the directory is live-reloadable")
+
+	// Directory and tcp_ports change together; both apply.
+	e.writeDirectory("[19000, 19001]", "127.0.0.1:0", `{listed: true, title: New}`)
+	e.app.reloadFromFile()
+	require.Len(t, e.app.directory.Entries(), 1)
+	assert.Equal(t, "New", e.app.directory.Entries()[0].Title)
+	assert.Equal(t, 404, e.status(19001))
+
+	// Unlisting removes the entry.
+	e.writeDirectory("[19000, 19001]", "127.0.0.1:0", `{listed: false, title: New}`)
+	e.app.reloadFromFile()
+	assert.Empty(t, e.app.directory.Entries())
+	assert.Equal(t, 404, e.status(19001), "the ports stay as they were")
+
+	// An invalid directory changes nothing.
+	e.writeDirectory("[19000, 19001]", "127.0.0.1:0", `{listed: true}`)
+	e.app.reloadFromFile()
+	assert.Contains(t, e.logs.String(), "config reload failed")
+	assert.Empty(t, e.app.directory.Entries())
+}
+
+func TestReloadKeepsTheDirectoryOfAServiceThatChangedOtherwise(t *testing.T) {
+	e := newReloadEnv(t, "[19000]")
+	e.app.directory = &frontend.Directory{}
+	e.app.directory.Set(directoryEntries(e.app.cfg))
+
+	// The upstream changes as well: the service needs a restart, and its
+	// directory change waits for it.
+	e.writeDirectory("[19000]", "127.0.0.1:0", `{listed: true, title: Svc}`)
+	b, err := os.ReadFile(e.path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(e.path, bytes.ReplaceAll(b, []byte("8080"), []byte("8081")), 0o600))
+	e.app.reloadFromFile()
+	assert.Contains(t, e.logs.String(), "requires a restart")
+	assert.Empty(t, e.app.directory.Entries())
 }

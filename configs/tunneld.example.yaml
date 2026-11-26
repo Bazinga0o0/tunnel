@@ -185,6 +185,11 @@ database:
 #     tcp_ports: [20000]               # optional; within tcp.port_range; a port belongs to
 #                                      # one service
 #     max_request_body_bytes: 67108864 # 0 selects this default (64 MiB); at most 268435456
+#     directory:                       # optional; list the service in GET /api/v1/directory
+#       listed: false                  # default false; the directory needs a valid API token
+#       title: "My service"            # required when listed; at most 80 characters, plain text
+#       description: "What it is for"  # optional; at most 400 characters, plain text
+#                                      # directory changes are applied by SIGHUP
 #
 # The service API, through which a service sets the holder of its TCP ports
 # (PUT, DELETE and GET /v1/tcp-ports/{port}/holder with the service's secret

@@ -64,6 +64,7 @@ type app struct {
 	revalidator  *sessionRevalidator     // nil when tunnel.revalidate_interval is negative
 	services     map[string]http.Handler // the proxies of the registered services by host
 	serviceAPI   http.Handler            // nil without services or service_api.addr
+	directory    *frontend.Directory     // the listed services; nil without services; reload replaces its content
 
 	tcpPool *edgetcp.Pool // nil unless tcp.enabled; reload changes its excluded ports
 
@@ -172,6 +173,12 @@ func (a *app) openDatabase(ctx context.Context, accOpts *acceptor.Options) error
 	opts.Reservations = a.reservations
 	opts.Sessions = a.sessions
 	opts.Registry = a.reg
+	if len(cfg.Services) > 0 {
+		a.directory = &frontend.Directory{}
+		a.directory.Set(directoryEntries(cfg))
+		opts.Directory = a.directory
+		opts.DirectoryVerifier = verifier
+	}
 	opts.Audit = auditSvc
 	opts.Mailer = mailer
 	opts.Verifications = verSvc

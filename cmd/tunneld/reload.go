@@ -28,7 +28,8 @@ func (a *app) reloadFromFile() {
 
 // reload applies the live-reloadable parts of next, which must have passed
 // config.Load, and leaves the rest of the running server alone. Live today:
-// the tcp_ports of the registered services. A tcp_ports change touches
+// the directory of the registered services (applyDirectory) and their
+// tcp_ports. A tcp_ports change touches
 // nothing but two in-memory sets (the pool's random-draw exclusion and the
 // service API's port check), so no listener, tunnel or connection is closed:
 //
@@ -47,6 +48,7 @@ func (a *app) reloadFromFile() {
 func (a *app) reload(next *config.Config) {
 	a.reloadMu.Lock()
 	defer a.reloadMu.Unlock()
+	a.applyDirectory(next)
 	cur := a.current
 
 	for _, section := range restartSections(cur, next) {
@@ -70,7 +72,7 @@ func (a *app) reload(next *config.Config) {
 	changed := false
 	for i, old := range cur.Services {
 		j := serviceIndex(next.Services, old.Name)
-		if j < 0 || !reflect.DeepEqual(withoutPorts(old), withoutPorts(next.Services[j])) {
+		if j < 0 || !reflect.DeepEqual(withoutLive(old), withoutLive(next.Services[j])) {
 			// Removed or changed otherwise: reported by restartSections.
 			applied[old.Name] = old.TCPPorts
 			continue
@@ -112,6 +114,34 @@ func (a *app) reload(next *config.Config) {
 	a.current = &merged
 }
 
+// applyDirectory applies the directory settings of the services that are
+// otherwise unchanged (the directory is not part of what requires a restart)
+// and publishes the new list. It runs with a.reloadMu held.
+func (a *app) applyDirectory(next *config.Config) {
+	if a.directory == nil {
+		return
+	}
+	cur := a.current
+	merged := *cur
+	merged.Services = slices.Clone(cur.Services)
+	changed := false
+	for i, old := range cur.Services {
+		j := serviceIndex(next.Services, old.Name)
+		if j < 0 || old.Directory == next.Services[j].Directory ||
+			!reflect.DeepEqual(withoutLive(old), withoutLive(next.Services[j])) {
+			continue // unchanged, or reported by restartSections
+		}
+		merged.Services[i].Directory = next.Services[j].Directory
+		changed = true
+		a.logger.Info("service directory reloaded", "service", old.Name, "listed", next.Services[j].Directory.Listed)
+	}
+	if !changed {
+		return
+	}
+	a.directory.Set(directoryEntries(&merged))
+	a.current = &merged
+}
+
 // restartSections names the parts of next that differ from cur and cannot be
 // applied while the server runs: every top-level section but services whose
 // value differs, and "services" when a service was added or removed or one
@@ -134,14 +164,17 @@ func restartSections(cur, next *config.Config) []string {
 	}
 	for _, old := range cur.Services {
 		j := serviceIndex(next.Services, old.Name)
-		if j < 0 || !reflect.DeepEqual(withoutPorts(old), withoutPorts(next.Services[j])) {
+		if j < 0 || !reflect.DeepEqual(withoutLive(old), withoutLive(next.Services[j])) {
 			return append(out, fmt.Sprintf("services (%s)", old.Name))
 		}
 	}
 	return out
 }
 
-func withoutPorts(s config.Service) config.Service {
+// withoutLive returns s without the fields that reload applies while the
+// server runs: tcp_ports and directory.
+func withoutLive(s config.Service) config.Service {
+	s.Directory = config.Directory{}
 	s.TCPPorts = nil
 	return s
 }

@@ -51,7 +51,7 @@ func TestRateLimitBytesPerKey(t *testing.T) {
 	// The default tables and their limits.
 	want := cost(DefaultLoginFailuresPerAccount) + cost(DefaultLoginFailuresPerIP) + cost(DefaultLoginsPerAccount) +
 		cost(DefaultSignupsPerIP) + cost(DefaultResetRequestsPerIP) + 2*cost(DefaultResetRequestsPerAccount) +
-		cost(1) + cost(DefaultUserActionsPerHour)
+		cost(1) + cost(DefaultUserActionsPerHour) + cost(DirectoryRequestsPerMinute)
 	assert.Equal(t, want, RateLimitBytesPerKey(Options{}))
 
 	// A table switched off costs nothing; a higher limit costs more.

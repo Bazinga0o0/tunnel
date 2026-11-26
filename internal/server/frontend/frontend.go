@@ -219,6 +219,12 @@ type Options struct {
 	audits *auditBudget
 	// SignupMode is cfg.Auth.SignupMode(): "open", "approval" or "closed".
 	SignupMode string
+
+	// Directory and DirectoryVerifier enable GET /api/v1/directory (see
+	// DirectoryPath): the listed services, for a request with a valid API
+	// token. Both must be set; with either nil the path does not exist.
+	Directory         *Directory
+	DirectoryVerifier DirectoryVerifier
 }
 
 // New builds the frontend http.Handler.
@@ -312,6 +318,12 @@ func New(opts Options) http.Handler {
 		r.Post("/reservations/grant", adminReservationsGrant(opts))
 		r.Post("/reservations/{type}/revoke", adminReservationsRevoke(opts))
 	})
+
+	// The directory API: token-authenticated, read-only, no cookies, so
+	// outside the CSRF protection.
+	if opts.Directory != nil && opts.DirectoryVerifier != nil {
+		r.Get(DirectoryPath, directoryHandler(opts))
+	}
 
 	// Everything else is behind CSRF protection.
 	r.Group(func(r chi.Router) {
