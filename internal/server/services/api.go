@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Bazinga0o0/tunnel/internal/server/db/sqlcgen"
@@ -83,6 +84,9 @@ type api struct {
 	reg             PortCloser
 	audit           Auditor
 	logger          *slog.Logger
+
+	mu    sync.RWMutex     // guards ports
+	ports map[string][]int // service name -> its tcp_ports (SetPorts)
 }
 
 // apiService is an APIService with the digest of its secret: digests of
@@ -91,7 +95,6 @@ type api struct {
 type apiService struct {
 	name   string
 	digest [sha256.Size]byte
-	ports  map[int]bool
 }
 
 type apiServiceKey struct{}
@@ -114,19 +117,55 @@ type apiServiceKey struct{}
 // been made, so the holding session is closed then as well. Errors are
 // {"error": "..."}.
 func NewAPI(svcs []APIService, res PortReservations, users UserLookup, requireApproved bool, reg PortCloser, audit Auditor, logger *slog.Logger) http.Handler {
-	a := &api{res: res, users: users, requireApproved: requireApproved, reg: reg, audit: audit, logger: logger}
+	a := &api{res: res, users: users, requireApproved: requireApproved, reg: reg, audit: audit, logger: logger,
+		ports: map[string][]int{}}
 	for _, s := range svcs {
 		a.services = append(a.services, apiService{
 			name:   s.Name,
 			digest: sha256.Sum256(s.Secret),
-			ports:  maps.Clone(s.Ports),
 		})
+		for port, ok := range s.Ports {
+			if ok {
+				a.ports[s.Name] = append(a.ports[s.Name], port)
+			}
+		}
+		if a.ports[s.Name] == nil {
+			a.ports[s.Name] = []int{}
+		}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("PUT /v1/tcp-ports/{port}/holder", a.setHolder)
 	mux.HandleFunc("DELETE /v1/tcp-ports/{port}/holder", a.clearHolder)
 	mux.HandleFunc("GET /v1/tcp-ports/{port}/holder", a.getHolder)
-	return a.authenticate(mux)
+	return &Handler{Handler: a.authenticate(mux), a: a}
+}
+
+// Handler is the service API as NewAPI returns it: an http.Handler whose
+// ports can be replaced while it serves.
+type Handler struct {
+	http.Handler
+	a *api
+}
+
+// SetPorts replaces the tcp_ports of the named services (service name to
+// ports) for all later requests; a service that is not in ports keeps its
+// ports, and a name that is not a service of the API is ignored. A request
+// that is being served finishes with the ports it saw.
+func (h *Handler) SetPorts(ports map[string][]int) {
+	h.a.mu.Lock()
+	defer h.a.mu.Unlock()
+	for name, p := range ports {
+		if _, ok := h.a.ports[name]; ok {
+			h.a.ports[name] = slices.Clone(p)
+		}
+	}
+}
+
+// owns reports whether port is one of the service's tcp_ports.
+func (a *api) owns(svc *apiService, port int) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return slices.Contains(a.ports[svc.name], port)
 }
 
 // authenticate lets through the requests that carry the secret of a
@@ -169,7 +208,7 @@ func (a *api) servicePort(w http.ResponseWriter, r *http.Request) (*apiService, 
 		writeError(w, http.StatusBadRequest, "invalid port")
 		return nil, 0, false
 	}
-	if !svc.ports[port] {
+	if !a.owns(svc, port) {
 		writeError(w, http.StatusForbidden, "port does not belong to the service")
 		return nil, 0, false
 	}

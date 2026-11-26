@@ -158,14 +158,19 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	go func() { errCh <- a.acceptor.Serve(ctx, tunnelLn) }()
 	go func() { errCh <- a.public.Serve(httpLn) }()
 
-	select {
-	case <-ctx.Done():
-		logger.Info("shutting down")
-		return nil
-	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
+	reloads := reloadSignals(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("shutting down")
+			return nil
+		case err := <-errCh:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return err
+			}
+			return nil
+		case <-reloads:
+			a.reloadFromFile()
 		}
-		return nil
 	}
 }

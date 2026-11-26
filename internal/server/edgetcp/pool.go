@@ -59,6 +59,25 @@ func (p *Pool) Exclude(ports []int) {
 	}
 }
 
+// SetExcluded replaces the set of ports Exclude built, for a reload of the
+// config while the pool is in use. A port that was excluded and no longer is
+// is drawn at random again; a port that is allocated stays allocated either
+// way. Ports outside the range are ignored.
+func (p *Pool) SetExcluded(ports []int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.excluded = nil
+	for _, port := range ports {
+		if port < p.lowPort || port > p.highPort {
+			continue
+		}
+		if p.excluded == nil {
+			p.excluded = map[int]struct{}{}
+		}
+		p.excluded[port] = struct{}{}
+	}
+}
+
 // Allocate claims a port. If preferred != 0, tries that specific port first;
 // otherwise it draws a free port that is not excluded (see Exclude).
 func (p *Pool) Allocate(preferred int) (int, error) {

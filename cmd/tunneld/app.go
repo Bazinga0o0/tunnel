@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -63,13 +64,18 @@ type app struct {
 	revalidator  *sessionRevalidator     // nil when tunnel.revalidate_interval is negative
 	services     map[string]http.Handler // the proxies of the registered services by host
 	serviceAPI   http.Handler            // nil without services or service_api.addr
+
+	tcpPool *edgetcp.Pool // nil unless tcp.enabled; reload changes its excluded ports
+
+	reloadMu sync.Mutex
+	current  *config.Config // the config the server runs with, as far as reload changed it
 }
 
 // newApp builds the server. With ACME and no usable certificate it waits
 // until one is obtained or ctx ends. On error everything it opened is
 // closed again.
 func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger) (a *app, err error) {
-	a = &app{cfg: cfg, logger: logger, reg: registry.New()}
+	a = &app{cfg: cfg, current: cfg, logger: logger, reg: registry.New()}
 	defer func() {
 		if err != nil {
 			a.closePool()
@@ -103,7 +109,9 @@ func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger) (a *ap
 	// One total for the visitor connections of the HTTP and the TCP edge.
 	budget := edgeBudget(cfg)
 	if cfg.TCP.Enabled {
-		accOpts.TCPEdge = edgetcp.NewWithOptions(edgeTCPOptions(cfg, logger, budget))
+		tcpOpts := edgeTCPOptions(cfg, logger, budget)
+		a.tcpPool = tcpOpts.Pool
+		accOpts.TCPEdge = edgetcp.NewWithOptions(tcpOpts)
 		logger.Info("tcp edge enabled", "low", cfg.TCP.PortRange.Low, "high", cfg.TCP.PortRange.High)
 	}
 	if cfg.UDP.Enabled {

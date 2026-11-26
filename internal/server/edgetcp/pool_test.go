@@ -100,3 +100,17 @@ func TestPoolRandomDrawSkipsExcluded(t *testing.T) {
 	_, err = p.Allocate(0)
 	assert.ErrorIs(t, err, ErrPoolExhausted)
 }
+
+func TestPoolSetExcludedReplacesTheSet(t *testing.T) {
+	p := NewPool(100, 101)
+	p.Exclude([]int{100})
+	p.SetExcluded([]int{101, 5000}) // 5000 is outside the range and ignored
+	got, err := p.Allocate(0)
+	require.NoError(t, err)
+	assert.Equal(t, 100, got, "100 is drawn again, 101 is not")
+	_, err = p.Allocate(0)
+	assert.ErrorIs(t, err, ErrPoolExhausted)
+	got, err = p.Allocate(101)
+	require.NoError(t, err, "an excluded port is still allocated by number")
+	assert.Equal(t, 101, got)
+}

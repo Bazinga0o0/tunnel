@@ -123,6 +123,24 @@ GET    /v1/tcp-ports/{port}/holder                     → 200 {"account_id": N}
 
 ## Service secret
 
+**Reloading `tcp_ports`.** Send `SIGHUP` (`sudo systemctl reload tunneld`)
+to apply a changed `tcp_ports` list without a restart; no tunnel or
+connection is closed. The server re-reads and validates the config file; if
+that fails it logs the error and keeps the running config. Then:
+
+- A port added to a service is no longer drawn at random and becomes one the
+  service can set a holder for.
+- A port removed from a service becomes an ordinary pool port again. A
+  tunnel that holds it keeps running, and a holder reservation of the port
+  stays in the database until you release it in the admin panel
+  (Reservations); the service can no longer change it (403).
+- Every other difference from the running config (listen addresses, TLS,
+  database, limits, `tcp.port_range`, a service that is added, removed or
+  changed in another field, ...) is ignored and logged as
+  `config change requires a restart and is ignored`. A `tcp_ports` entry
+  outside the running `tcp.port_range` is ignored the same way. `SIGHUP` is
+  not available on Windows.
+
 The server reads the secret files when `tunneld serve` starts, not when a
 `tunneld admin` command loads the config; after changing a secret, restart
 the service. White space around the secret, such as the newline `openssl`
